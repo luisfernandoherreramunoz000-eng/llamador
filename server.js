@@ -14,7 +14,7 @@ const io = new Server(server, { cors: { origin: "*" } });
 let pedidosDB = {}; 
 let contadorOrdenes = 1;
 
-// --- PANTALLA DEL CLIENTE ACTUALIZADA (SOLUCIONES APLICADAS) ---
+// --- PANTALLA DEL CLIENTE ---
 app.get('/espera', (req, res) => {
     res.send(`
     <!DOCTYPE html>
@@ -35,7 +35,7 @@ app.get('/espera', (req, res) => {
             </button>
         </div>
 
-        <!-- Pantalla 2: Vista de Espera (Oculta al principio) -->
+        <!-- Pantalla 2: Vista de Espera -->
         <div id="pantalla-espera" style="display: none; background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); max-width: 90%; margin: auto;">
             <h1 style="color: #333; margin-bottom: 5px;">Tu Pedido</h1>
             <p style="color: #666; font-size: 18px;">Orden: <strong id="num-orden" style="color: #000;">Cargando...</strong></p>
@@ -44,38 +44,48 @@ app.get('/espera', (req, res) => {
                 🍳 En preparación...
             </div>
             
-            <!-- Aviso UX para evitar que cierren la pantalla -->
             <p style="color: #888; font-size: 13px; margin-top: 25px;">
                 ⚠️ <strong>Importante:</strong> Mantén esta pantalla abierta y no bloquees tu celular para asegurar que recibas tu llamado.
             </p>
         </div>
 
+        <!-- Audio base (timbre) -->
         <audio id="alerta-audio" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto"></audio>
         
         <script src="/socket.io/socket.io.js"></script>
         <script>
             const socket = io();
             const urlParams = new URLSearchParams(window.location.search);
-            const pedidoId = urlParams.get('id');
+            let pedidoId = urlParams.get('id');
+
+            // Memoria para reconectar si recargan la página
+            if (pedidoId) {
+                localStorage.setItem('pedido_activo', pedidoId);
+            } else {
+                pedidoId = localStorage.getItem('pedido_activo');
+            }
 
             let wakeLock = null;
 
-            // Al presionar el botón, se desbloquean los permisos del teléfono
             document.getElementById('btn-activar').addEventListener('click', async () => {
                 
-                // 1. Mostrar la pantalla real
+                // Mostrar pantalla de espera
                 document.getElementById('pantalla-inicio').style.display = 'none';
                 document.getElementById('pantalla-espera').style.display = 'block';
 
-                // 2. Truco para desbloquear el audio (reproducir en silencio)
+                // Desbloquear audio normal
                 const audio = document.getElementById('alerta-audio');
                 audio.volume = 0;
                 await audio.play().catch(() => {});
                 audio.pause();
                 audio.currentTime = 0;
-                audio.volume = 1; // Devolver el volumen al 100%
+                audio.volume = 1; 
 
-                // 3. Mantener la pantalla encendida (Wake Lock API)
+                // Desbloquear voz del sistema
+                const vozSilencio = new SpeechSynthesisUtterance('');
+                window.speechSynthesis.speak(vozSilencio);
+
+                // Bloqueo de pantalla (evitar que se apague)
                 try {
                     if ('wakeLock' in navigator) {
                         wakeLock = await navigator.wakeLock.request('screen');
@@ -84,7 +94,6 @@ app.get('/espera', (req, res) => {
                     console.log('Bloqueo de pantalla no soportado');
                 }
 
-                // 4. Conectar al servidor
                 if (pedidoId) {
                     socket.emit('unirse_pedido', pedidoId);
                 } else {
@@ -96,16 +105,28 @@ app.get('/espera', (req, res) => {
 
             socket.on('alerta_listo', (data) => {
                 const estadoDiv = document.getElementById('estado');
-                estadoDiv.innerHTML = "¡LISTO PARA RECOGER! 🎉";
+                estadoDiv.innerHTML = "¡LISTO PARA RECOGER! 🎉<br><br><span style='font-size: 24px; color: #fff;'>(¡¡Tu crush está listo!!)</span>";
                 estadoDiv.style.color = "#fff";
                 estadoDiv.style.backgroundColor = "#4CAF50";
                 estadoDiv.style.borderColor = "#4CAF50";
                 document.getElementById('num-orden').innerText = data.numero_orden;
                 
+                // 1. Timbre
                 document.getElementById('alerta-audio').play().catch(()=>console.log('Error de audio'));
+                
+                // 2. Voz del celular (El timeout asegura que suene justo después del timbre)
+                setTimeout(() => {
+                    const locucion = new SpeechSynthesisUtterance("¡Tu crush está listo!");
+                    locucion.lang = 'es-CO'; 
+                    locucion.rate = 1.0;     
+                    locucion.pitch = 1.1;    
+                    window.speechSynthesis.speak(locucion);
+                }, 800);
+                
+                // 3. Vibración
                 if (navigator.vibrate) navigator.vibrate([500, 200, 500, 200, 1000]);
                 
-                // Liberar la pantalla para que pueda apagarse normalmente
+                // Liberar pantalla
                 if (wakeLock !== null) {
                     wakeLock.release();
                     wakeLock = null;
