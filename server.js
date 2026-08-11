@@ -139,13 +139,13 @@ app.get('/espera', (req, res) => {
 });
 
 // --- RUTAS DEL SISTEMA ---
-// --- NUEVA RUTA: OBTENER PEDIDOS PENDIENTES ---
+
+// 1. Obtener todos los pedidos (El panel ahora los filtrará)
 app.get('/api/pedidos', (req, res) => {
-    // Filtra la base de datos temporal para mostrar solo los que no están listos
-    const pendientes = Object.values(pedidosDB).filter(p => p.estado === 'preparacion');
-    res.json(pendientes);
+    res.json(Object.values(pedidosDB));
 });
 
+// 2. Crear pedido
 app.post('/api/pedidos', (req, res) => {
     const id = Date.now().toString(); 
     const numero_orden = `T-${contadorOrdenes++}`;
@@ -153,11 +153,23 @@ app.post('/api/pedidos', (req, res) => {
     res.json({ id, numero_orden });
 });
 
+// 3. Marcar como "Listo" y llamar al cliente
 app.post('/api/pedidos/:id/listo', (req, res) => {
     const { id } = req.params;
     if (pedidosDB[id]) {
         pedidosDB[id].estado = 'listo';
         io.to(id).emit('alerta_listo', { numero_orden: pedidosDB[id].numero_orden });
+        res.json({ success: true });
+    } else {
+        res.status(404).json({ error: 'Pedido no encontrado' });
+    }
+});
+
+// 4. NUEVA RUTA: Marcar como "Entregado" (Pasa al historial)
+app.post('/api/pedidos/:id/entregado', (req, res) => {
+    const { id } = req.params;
+    if (pedidosDB[id]) {
+        pedidosDB[id].estado = 'entregado';
         res.json({ success: true });
     } else {
         res.status(404).json({ error: 'Pedido no encontrado' });
