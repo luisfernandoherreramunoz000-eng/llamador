@@ -139,6 +139,13 @@ app.get('/espera', (req, res) => {
 });
 
 // --- RUTAS DEL SISTEMA ---
+// --- NUEVA RUTA: OBTENER PEDIDOS PENDIENTES ---
+app.get('/api/pedidos', (req, res) => {
+    // Filtra la base de datos temporal para mostrar solo los que no están listos
+    const pendientes = Object.values(pedidosDB).filter(p => p.estado === 'preparacion');
+    res.json(pendientes);
+});
+
 app.post('/api/pedidos', (req, res) => {
     const id = Date.now().toString(); 
     const numero_orden = `T-${contadorOrdenes++}`;
