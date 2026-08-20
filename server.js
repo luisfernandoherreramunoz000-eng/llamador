@@ -13,8 +13,43 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 let pedidosDB = {}; 
 let contadorOrdenes = 1;
+// --- ARCHIVOS PARA LA PWA (APP DESCARGABLE) ---
+
+// 1. El Manifest (Configuración de la App)
+app.get('/manifest.json', (req, res) => {
+    res.json({
+        "name": "Pollo Crush",
+        "short_name": "Pollo Crush",
+        "start_url": "/espera",
+        "display": "standalone",
+        "background_color": "#ffffff",
+        "theme_color": "#ff3b30",
+        "description": "Llamador de pedidos y promociones exclusivas",
+        "icons": [
+            {
+                "src": "https://cdn-icons-png.flaticon.com/512/3081/3081840.png", // Icono temporal de pollo
+                "sizes": "512x512",
+                "type": "image/png"
+            }
+        ]
+    });
+});
+
+// 2. El Service Worker (Permite la instalación)
+app.get('/sw.js', (req, res) => {
+    res.setHeader('Content-Type', 'application/javascript');
+    res.send(`
+        self.addEventListener('install', (e) => {
+            console.log('App lista para instalarse');
+        });
+        self.addEventListener('fetch', (e) => {
+            // No hacemos nada por ahora, solo es requisito para que el celular permita instalar
+        });
+    `);
+});
 
 // --- PANTALLA DEL CLIENTE ---
+// --- PANTALLA DEL CLIENTE CON BANNER OPCIONAL PWA ---
 app.get('/espera', (req, res) => {
     res.send(`
     <!DOCTYPE html>
@@ -23,13 +58,16 @@ app.get('/espera', (req, res) => {
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Tu Pedido</title>
+        <!-- Enlace al manifest para que el celular sepa que es instalable -->
+        <link rel="manifest" href="/manifest.json">
+        <meta name="theme-color" content="#ff3b30">
     </head>
-    <body style="font-family: Arial, sans-serif; text-align: center; padding: 30px; background: #f4f4f4;">
+    <body style="font-family: Arial, sans-serif; text-align: center; padding: 20px; background: #f4f4f4; padding-bottom: 100px;">
         
-        <!-- Pantalla 1: Botón de Interacción Obligatorio -->
+        <!-- Pantalla 1: Botón de Interacción -->
         <div id="pantalla-inicio" style="background: #fff; padding: 40px 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); max-width: 90%; margin: auto;">
             <h1 style="color: #333; margin-bottom: 15px;">¡Casi listo!</h1>
-            <p style="color: #666; font-size: 16px; margin-bottom: 25px;">Para recibir la alerta sonora y vibración cuando tu pedido esté crujiente, presiona el botón.</p>
+            <p style="color: #666; font-size: 16px; margin-bottom: 25px;">Para recibir la alerta sonora cuando tu pedido esté crujiente, presiona el botón.</p>
             <button id="btn-activar" style="background-color: #ff3b30; color: white; border: none; padding: 15px 30px; font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; width: 100%;">
                 ACTIVAR ALERTA
             </button>
@@ -49,16 +87,57 @@ app.get('/espera', (req, res) => {
             </p>
         </div>
 
-        <!-- Audio base (timbre) -->
+        <!-- BANNER OPCIONAL DE PROMOCIONES (Oculto al inicio, se muestra si el celular es compatible) -->
+        <div id="banner-instalar" style="display: none; position: fixed; bottom: 0; left: 0; right: 0; background: #333; color: white; padding: 15px; text-align: center; box-shadow: 0 -2px 10px rgba(0,0,0,0.2);">
+            <p style="margin: 0 0 10px 0; font-size: 14px; font-weight: bold;">🎁 ¡Instala nuestra App, no te pierdas promociones exclusivas!</p>
+            <button id="btn-instalar" style="background: #4CAF50; color: white; border: none; padding: 10px 20px; font-size: 14px; font-weight: bold; border-radius: 5px; cursor: pointer;">
+                DESCARGAR APP
+            </button>
+            <button onclick="document.getElementById('banner-instalar').style.display='none'" style="background: none; color: #aaa; border: none; padding: 10px; font-size: 12px; cursor: pointer; text-decoration: underline;">
+                Cerrar
+            </button>
+        </div>
+
         <audio id="alerta-audio" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto"></audio>
         
         <script src="/socket.io/socket.io.js"></script>
         <script>
+            // 1. REGISTRO DEL SERVICE WORKER (Vital para que funcione la App)
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/sw.js').then(() => {
+                    console.log('Service Worker registrado');
+                });
+            }
+
+            // 2. LÓGICA DEL BOTÓN DE INSTALACIÓN
+            let eventoInstalacion;
+            window.addEventListener('beforeinstallprompt', (e) => {
+                // Previene que Chrome muestre su propio aviso automático
+                e.preventDefault();
+                // Guarda el evento para usarlo cuando el cliente presione nuestro botón
+                eventoInstalacion = e;
+                // Muestra nuestro banner oscuro abajo
+                document.getElementById('banner-instalar').style.display = 'block';
+            });
+
+            document.getElementById('btn-instalar').addEventListener('click', async () => {
+                if (eventoInstalacion) {
+                    eventoInstalacion.prompt();
+                    const { outcome } = await eventoInstalacion.userChoice;
+                    if (outcome === 'accepted') {
+                        console.log('El cliente instaló la app');
+                    }
+                    // Ocultamos el banner sin importar lo que elija
+                    document.getElementById('banner-instalar').style.display = 'none';
+                    eventoInstalacion = null;
+                }
+            });
+
+            // 3. LÓGICA DEL LLAMADOR NORMAL (Intacta)
             const socket = io();
             const urlParams = new URLSearchParams(window.location.search);
             let pedidoId = urlParams.get('id');
 
-            // Memoria para reconectar si recargan la página
             if (pedidoId) {
                 localStorage.setItem('pedido_activo', pedidoId);
             } else {
@@ -68,12 +147,9 @@ app.get('/espera', (req, res) => {
             let wakeLock = null;
 
             document.getElementById('btn-activar').addEventListener('click', async () => {
-                
-                // Mostrar pantalla de espera
                 document.getElementById('pantalla-inicio').style.display = 'none';
                 document.getElementById('pantalla-espera').style.display = 'block';
 
-                // Desbloquear audio normal
                 const audio = document.getElementById('alerta-audio');
                 audio.volume = 0;
                 await audio.play().catch(() => {});
@@ -81,25 +157,19 @@ app.get('/espera', (req, res) => {
                 audio.currentTime = 0;
                 audio.volume = 1; 
 
-                // Desbloquear voz del sistema
                 const vozSilencio = new SpeechSynthesisUtterance('');
                 window.speechSynthesis.speak(vozSilencio);
 
-                // Bloqueo de pantalla (evitar que se apague)
                 try {
                     if ('wakeLock' in navigator) {
                         wakeLock = await navigator.wakeLock.request('screen');
                     }
-                } catch (err) {
-                    console.log('Bloqueo de pantalla no soportado');
-                }
+                } catch (err) {}
 
                 if (pedidoId) {
                     socket.emit('unirse_pedido', pedidoId);
                 } else {
                     document.getElementById('estado').innerText = "⚠️ QR inválido";
-                    document.getElementById('estado').style.borderColor = "red";
-                    document.getElementById('estado').style.color = "red";
                 }
             });
 
@@ -111,10 +181,8 @@ app.get('/espera', (req, res) => {
                 estadoDiv.style.borderColor = "#4CAF50";
                 document.getElementById('num-orden').innerText = data.numero_orden;
                 
-                // 1. Timbre
-                document.getElementById('alerta-audio').play().catch(()=>console.log('Error de audio'));
+                document.getElementById('alerta-audio').play().catch(()=>{});
                 
-                // 2. Voz del celular (El timeout asegura que suene justo después del timbre)
                 setTimeout(() => {
                     const locucion = new SpeechSynthesisUtterance("¡Tu crush está listo!");
                     locucion.lang = 'es-CO'; 
@@ -123,10 +191,8 @@ app.get('/espera', (req, res) => {
                     window.speechSynthesis.speak(locucion);
                 }, 800);
                 
-                // 3. Vibración
                 if (navigator.vibrate) navigator.vibrate([500, 200, 500, 200, 1000]);
                 
-                // Liberar pantalla
                 if (wakeLock !== null) {
                     wakeLock.release();
                     wakeLock = null;
