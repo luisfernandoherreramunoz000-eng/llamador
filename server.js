@@ -13,6 +13,7 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 let pedidosDB = {}; 
 let contadorOrdenes = 1;
+
 // --- ARCHIVOS PARA LA PWA (APP DESCARGABLE) ---
 
 // 1. El Manifest (Configuración de la App)
@@ -27,7 +28,12 @@ app.get('/manifest.json', (req, res) => {
         "description": "Llamador de pedidos y promociones exclusivas",
         "icons": [
             {
-                "src": "https://cdn-icons-png.flaticon.com/512/3081/3081840.png", // Icono temporal de pollo
+                "src": "https://cdn-icons-png.flaticon.com/512/3081/3081840.png", 
+                "sizes": "192x192",
+                "type": "image/png"
+            },
+            {
+                "src": "https://cdn-icons-png.flaticon.com/512/3081/3081840.png", 
                 "sizes": "512x512",
                 "type": "image/png"
             }
@@ -43,12 +49,11 @@ app.get('/sw.js', (req, res) => {
             console.log('App lista para instalarse');
         });
         self.addEventListener('fetch', (e) => {
-            // No hacemos nada por ahora, solo es requisito para que el celular permita instalar
+            // Requisito para que el celular permita instalar
         });
     `);
 });
 
-// --- PANTALLA DEL CLIENTE ---
 // --- PANTALLA DEL CLIENTE CON BANNER OPCIONAL PWA ---
 app.get('/espera', (req, res) => {
     res.send(`
@@ -58,7 +63,6 @@ app.get('/espera', (req, res) => {
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Tu Pedido</title>
-        <!-- Enlace al manifest para que el celular sepa que es instalable -->
         <link rel="manifest" href="/manifest.json">
         <meta name="theme-color" content="#ff3b30">
     </head>
@@ -87,7 +91,7 @@ app.get('/espera', (req, res) => {
             </p>
         </div>
 
-        <!-- BANNER OPCIONAL DE PROMOCIONES (Oculto al inicio, se muestra si el celular es compatible) -->
+        <!-- BANNER OPCIONAL DE PROMOCIONES -->
         <div id="banner-instalar" style="display: none; position: fixed; bottom: 0; left: 0; right: 0; background: #333; color: white; padding: 15px; text-align: center; box-shadow: 0 -2px 10px rgba(0,0,0,0.2);">
             <p style="margin: 0 0 10px 0; font-size: 14px; font-weight: bold;">🎁 ¡Instala nuestra App, no te pierdas promociones exclusivas!</p>
             <button id="btn-instalar" style="background: #4CAF50; color: white; border: none; padding: 10px 20px; font-size: 14px; font-weight: bold; border-radius: 5px; cursor: pointer;">
@@ -102,21 +106,16 @@ app.get('/espera', (req, res) => {
         
         <script src="/socket.io/socket.io.js"></script>
         <script>
-            // 1. REGISTRO DEL SERVICE WORKER (Vital para que funcione la App)
             if ('serviceWorker' in navigator) {
                 navigator.serviceWorker.register('/sw.js').then(() => {
                     console.log('Service Worker registrado');
                 });
             }
 
-            // 2. LÓGICA DEL BOTÓN DE INSTALACIÓN
             let eventoInstalacion;
             window.addEventListener('beforeinstallprompt', (e) => {
-                // Previene que Chrome muestre su propio aviso automático
                 e.preventDefault();
-                // Guarda el evento para usarlo cuando el cliente presione nuestro botón
                 eventoInstalacion = e;
-                // Muestra nuestro banner oscuro abajo
                 document.getElementById('banner-instalar').style.display = 'block';
             });
 
@@ -125,15 +124,13 @@ app.get('/espera', (req, res) => {
                     eventoInstalacion.prompt();
                     const { outcome } = await eventoInstalacion.userChoice;
                     if (outcome === 'accepted') {
-                        console.log('El cliente instaló la app');
+                        console.log('App instalada');
                     }
-                    // Ocultamos el banner sin importar lo que elija
                     document.getElementById('banner-instalar').style.display = 'none';
                     eventoInstalacion = null;
                 }
             });
 
-            // 3. LÓGICA DEL LLAMADOR NORMAL (Intacta)
             const socket = io();
             const urlParams = new URLSearchParams(window.location.search);
             let pedidoId = urlParams.get('id');
@@ -206,12 +203,10 @@ app.get('/espera', (req, res) => {
 
 // --- RUTAS DEL SISTEMA ---
 
-// 1. Obtener todos los pedidos (El panel ahora los filtrará)
 app.get('/api/pedidos', (req, res) => {
     res.json(Object.values(pedidosDB));
 });
 
-// 2. Crear pedido
 app.post('/api/pedidos', (req, res) => {
     const id = Date.now().toString(); 
     const numero_orden = `T-${contadorOrdenes++}`;
@@ -219,7 +214,6 @@ app.post('/api/pedidos', (req, res) => {
     res.json({ id, numero_orden });
 });
 
-// 3. Marcar como "Listo" y llamar al cliente
 app.post('/api/pedidos/:id/listo', (req, res) => {
     const { id } = req.params;
     if (pedidosDB[id]) {
@@ -231,7 +225,6 @@ app.post('/api/pedidos/:id/listo', (req, res) => {
     }
 });
 
-// 4. NUEVA RUTA: Marcar como "Entregado" (Pasa al historial)
 app.post('/api/pedidos/:id/entregado', (req, res) => {
     const { id } = req.params;
     if (pedidosDB[id]) {
